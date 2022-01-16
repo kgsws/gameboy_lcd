@@ -1,0 +1,7 @@
+
+#define WIFI_INFO_SSID	"SSID"
+#define WIFI_INFO_PSK	"PSK"
+
+#define DATA_TARGET_IP	"192.168.1.255"
+#define DATA_TARGET_PORT	2991
+

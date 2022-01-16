@@ -1,0 +1,217 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdarg.h>
+#include <unistd.h>
+#include <poll.h>
+#include <time.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <errno.h>
+
+#define UPD_PORT	2991
+
+#define LCD_WIDTH	160
+#define LCD_HEIGHT	144
+#define LCD_SIZE	(LCD_WIDTH * LCD_HEIGHT)
+
+#define SCALE	1
+
+//
+
+typedef struct
+{
+	uint32_t frame;
+	uint8_t data[1440]; // 1/4 of full frame
+} frame_packet_t;
+
+//
+
+int stopped;
+
+int sck;
+frame_packet_t fp[4];
+
+uint32_t frame_count;
+uint32_t capture_scale = 1;
+uint32_t capture_width = LCD_WIDTH;
+uint32_t capture_height = LCD_HEIGHT;
+uint32_t offset_x;
+uint32_t offset_y;
+
+static Display *display;
+static Window root_win;
+
+struct sockaddr_in dest_addr =
+{
+	.sin_family = AF_INET,
+	.sin_port = ((UPD_PORT >> 8) | (UPD_PORT << 8)) & 0xFFFF
+};
+
+//
+// funcs
+
+static uint8_t rgb_to_shade(uint32_t input)
+{
+	int ret;
+	float r, g, b;
+
+	b = (float)(input & 0xFF) / 255.0f;
+	g = (float)((input >> 8) & 0xFF) / 255.0f;
+	r = (float)((input >> 16) & 0xFF) / 255.0f;
+
+	ret = ((r * 0.299f + g * 0.587f + b * 0.114f) * 3.0f + /*0.5f*/ 0.75f);
+	return 3 - ret;
+}
+
+static void convert_image(uint32_t *src)
+{
+	uint8_t *dst;
+
+	for(uint32_t y = 0; y < LCD_HEIGHT; y++)
+	{
+		switch(y)
+		{
+			case (LCD_HEIGHT / 4) * 0:
+				dst = fp[0].data;
+			break;
+			case (LCD_HEIGHT / 4) * 1:
+				dst = fp[1].data;
+			break;
+			case (LCD_HEIGHT / 4) * 2:
+				dst = fp[2].data;
+			break;
+			case (LCD_HEIGHT / 4) * 3:
+				dst = fp[3].data;
+			break;
+		}
+		for(uint32_t x = 0; x < LCD_WIDTH / 4; x++)
+		{
+			register uint8_t tmp;
+
+			tmp = rgb_to_shade(*src) << 0;
+			src += capture_scale;
+			tmp |= rgb_to_shade(*src) << 2;
+			src += capture_scale;
+			tmp |= rgb_to_shade(*src) << 4;
+			src += capture_scale;
+			tmp |= rgb_to_shade(*src) << 6;
+			src += capture_scale;
+
+			*dst++ = tmp;
+		}
+		src += capture_width * (capture_scale - 1);
+	}
+}
+
+static void send_part(int idx)
+{
+	fp[idx].frame = (frame_count << 2) | idx;
+	send(sck, fp + idx, sizeof(frame_packet_t), 0);
+}
+
+static int init_capture()
+{
+	XWindowAttributes attributes;
+
+	display = XOpenDisplay(NULL);
+	if(!display)
+		return 1;
+
+	root_win = DefaultRootWindow(display);
+	XGetWindowAttributes(display, root_win, &attributes);
+
+	printf("XWindow: %u x %u\n", attributes.width, attributes.height);
+	if(attributes.width < capture_width || attributes.height < capture_height)
+		return 1;
+
+	offset_x = (attributes.width / 2) - (capture_width / 2);
+	offset_y = (attributes.height / 2) - (capture_height / 2);
+
+	return 0;
+}
+
+//
+// MAIN
+
+int main(int argc, void **argv)
+{
+	if(argc < 2)
+	{
+		printf("usage: %s IP [scale]\n", argv[0]);
+		return 1;
+	}
+
+	if(argc > 2)
+	{
+		if(sscanf(argv[2], "%u", &capture_scale) != 1 || !capture_scale)
+		{
+			printf("invalid scale\n");
+			return 1;
+		}
+		capture_width *= capture_scale;
+		capture_height *= capture_scale;
+	}
+
+	if(init_capture())
+	{
+		printf("XWindow capture init failed\n");
+		return 1;
+	}
+
+	sck = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if(sck < 0)
+	{
+		printf("socket creation failed\n");
+		return 1;
+	}
+
+	dest_addr.sin_addr.s_addr = inet_addr(argv[1]);
+	if(connect(sck, (struct sockaddr*)&dest_addr, sizeof(dest_addr)) < 0)
+	{
+		printf("connect failed %d\n", errno);
+		return 1;
+	}
+
+	while(!stopped)
+	{
+		XImage *img;
+
+		// CAPTURE
+		img = XGetImage(display, root_win, offset_x, offset_y, capture_width, capture_height, AllPlanes, ZPixmap);
+		convert_image((uint32_t*)img->data);
+		XDestroyImage(img);
+
+		// SEND
+		send_part(0);
+		usleep(20 * 1000);
+		send_part(1);
+		usleep(20 * 1000);
+		send_part(2);
+		usleep(20 * 1000);
+		send_part(3);
+		usleep(20 * 1000);
+
+#if 0
+		// testing
+		FILE *f;
+		f = fopen("/tmp/frame.bin", "wb");
+		if(f)
+		{
+			for(uint32_t i = 0; i < 4; i++)
+				fwrite(fp[i].data, 1, 1440, f);
+			fclose(f);
+		}
+#endif
+
+		frame_count++;
+	}
+
+	XCloseDisplay(display);
+
+	return 0;
+}
+
