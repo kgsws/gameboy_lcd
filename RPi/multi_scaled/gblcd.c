@@ -22,8 +22,8 @@
 #define LINE_START	40
 #define FRAME_HEIGHT	154
 
-// LCD control lanes; Forced on RED channel by the code
-// BEWARE! R6 and R7 are used as a data by the code
+// LCD control lanes; Forced on BLUE channel by the code
+// BEWARE! B6 and B7 are used as a data by the code
 #define OUTBIT_CPG	(1 << 0)
 #define OUTBIT_CPL	(1 << 1)
 #define OUTBIT_ST	(1 << 2)

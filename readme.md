@@ -54,6 +54,39 @@ However, you can't just run any application, as there is no FPGA involved.
 If you use something that uses framebuffer the standard way, it will generate garbage signals for LCDs.
 This might even damage them. Every application has to be modified to generate correct signals.
 
+### Pin mapping
+
+This is a default configuration and i relies on BGRA framebuffer setting. If you happen to use RGBA just swap RED with BLUE.
+LCD Data are always on two consecutive pins.
+In single-screen code only first to bits of GREEN channel are used.
+
+- `B0` CPG
+- `B1` CPL
+- `B2` ST
+- `B3` CP
+- `B4` FR
+- `B5` S
+- `B6` LD0
+- `B7` LD1
+
+- `G0` LD0 (used in single screen mode)
+- `G1` LD1 (used in single screen mode)
+- `G2` LD0
+- `G3` LD1
+- `G4` LD0
+- `G5` LD1
+- `G6` LD0
+- `G7` LD1
+
+- `R0` LD0
+- `R1` LD1
+- `R2` LD0
+- `R3` LD1
+- `R4` LD0
+- `R5` LD1
+- `R6` LD0
+- `R7` LD1
+
 ### config.txt
 
 Use FKMS mode! Example code requires framebuffer to exist. Use `legacy` version of raspberry Pi OS.
